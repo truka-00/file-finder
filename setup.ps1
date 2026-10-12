@@ -1,6 +1,6 @@
 ﻿# 파일 찾기 설치 — 이 폴더에서 실행:  powershell -ExecutionPolicy Bypass -File setup.ps1
-# 다운로드 자동 정리를 원하지 않으면:  ... -File setup.ps1 -NoSort
-param([switch]$NoSort)
+# 기본은 검색만 설치한다 (파일을 옮기지 않음). 다운로드 자동 정리까지 원하면:  ... -File setup.ps1 -Sort
+param([switch]$Sort)
 $ErrorActionPreference = "Stop"
 $dir = $PSScriptRoot
 
@@ -42,16 +42,16 @@ $l.Hotkey = $cfg.'단축키'
 $l.Save()
 Write-Host "바탕화면에 '파일 찾기' 아이콘을 만들었어요. 단축키: $($cfg.'단축키')"
 
-# 6. 다운로드 자동 정리 (하루 한 번 오후 5시 30분, 꺼져 있었으면 다음에 켤 때)
+# 6. 다운로드 자동 정리 — -Sort 를 줬을 때만 (하루 한 번 오후 5시 30분, 꺼져 있었으면 다음에 켤 때)
 $task = "파일찾기 - 다운로드 정리"
-if ($NoSort) {
-    Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
-} else {
+if ($Sort) {
     $a = New-ScheduledTaskAction -Execute $pyw -Argument "`"$dir\sorter.py`"" -WorkingDirectory $dir
     $t = New-ScheduledTaskTrigger -Daily -At 17:30
     $s = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
     Register-ScheduledTask -TaskName $task -Action $a -Trigger $t -Settings $s -Force | Out-Null
     Write-Host "다운로드 자동 정리를 매일 오후 5시 30분에 하도록 등록했어요."
+} elseif (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) {
+    Write-Host "다운로드 자동 정리가 이미 켜져 있어요. 그대로 둡니다. (끄려면 작업 스케줄러에서 '$task' 삭제)"
 }
 
 # 7. 첫 색인
