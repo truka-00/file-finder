@@ -19,6 +19,7 @@
     font-size: 17px; line-height: 1.6; word-break: keep-all;
   }
   .wrap { max-width: 980px; margin: 0 auto; padding: 72px 24px 96px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
   h1 { font-size: 48px; font-weight: 600; line-height: 1.15; letter-spacing: -0.01em; margin: 0 0 8px; }
   .lead { font-size: 19px; color: var(--sub); margin: 0 0 32px; }
 
@@ -41,24 +42,36 @@
   .status { display: flex; justify-content: space-between; align-items: center; gap: 12px;
     margin: 28px 0 8px; font-size: 14px; color: var(--sub); }
   .linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
+  .linkbtn:hover { text-decoration: underline; }
+
+  .banner { background: var(--soft); border-radius: 12px; padding: 20px 24px; margin: 28px 0 0; }
+  .banner h2 { font-size: 21px; font-weight: 600; margin: 0 0 4px; overflow-wrap: anywhere; }
+  .banner p { font-size: 15px; color: var(--sub); margin: 0; }
+  .banner .linkbtn { font-size: 15px; margin-bottom: 8px; }
 
   ol { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
   li { padding: 20px 4px; border-bottom: 1px solid var(--line); display: grid;
     grid-template-columns: 1fr auto; gap: 4px 24px; align-items: start; border-radius: 4px; }
   li.sel { background: var(--soft); }
+  li.group { display: block; padding: 28px 4px 8px; font-size: 14px; font-weight: 600; color: var(--sub); border-bottom: 0; }
   .name { font-size: 17px; font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
   .name:hover { text-decoration: underline; }
   .type { display: inline-block; font-size: 12px; font-weight: 600; color: var(--sub);
     border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; margin-right: 8px; vertical-align: 2px; }
   .path { font-size: 14px; color: var(--sub); overflow-wrap: anywhere; }
   .snip { font-size: 15px; color: var(--sub); margin-top: 4px; overflow-wrap: anywhere; }
+  .more { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 14px; }
+  .copies { margin: 6px 0 0; padding: 8px 12px; background: var(--soft); border-radius: 8px; font-size: 14px; color: var(--sub); }
+  .copies div { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; overflow-wrap: anywhere; }
+  .why { font-size: 14px; color: var(--ink); margin-top: 4px; }
   mark { background: var(--mark); color: inherit; border-radius: 2px; }
-  .side { grid-row: 1 / span 3; grid-column: 2; text-align: right; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .side { grid-row: 1 / span 4; grid-column: 2; text-align: right; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
   .date { font-size: 13px; color: var(--faint); white-space: nowrap; }
   .btns { display: flex; gap: 6px; }
   .btn { height: 34px; padding: 0 14px; border-radius: 999px; font: inherit; font-size: 14px; font-weight: 500;
     cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink); white-space: nowrap; }
   .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .btn.on { background: var(--ink); color: #fff; border-color: var(--ink); }
   .empty { padding: 56px 0; text-align: center; color: var(--sub); }
   .tips { font-size: 15px; color: var(--sub); margin-top: 40px; }
   .tips b { color: var(--ink); font-weight: 600; }
@@ -76,8 +89,10 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>파일 찾기</h1>
-  <p class="lead" id="lead"></p>
+  <div class="head">
+    <div><h1>파일 찾기</h1><p class="lead" id="lead"></p></div>
+    <button class="btn" id="piiBtn">개인정보 점검</button>
+  </div>
 
   <div class="box"><input id="q" type="search" placeholder="예: 교과회의록, 가정통신문, 수행평가" autofocus autocomplete="off"></div>
   <div class="filters" id="filters">
@@ -90,6 +105,7 @@
     <button class="chip" data-kind="사진·영상" aria-pressed="false">사진·영상</button>
   </div>
 
+  <div class="banner" id="banner" hidden></div>
   <div class="status"><span id="count"></span><span><span id="idx"></span> <button class="linkbtn" id="re">다시 읽기</button></span></div>
   <ol id="list"></ol>
   <div id="empty" class="empty" hidden></div>
@@ -105,13 +121,16 @@ const TOKEN = "__TOKEN__";
 const ROOTS = __ROOTS__;
 const $ = id => document.getElementById(id);
 const api = (u, opt = {}) => fetch(u, { ...opt, headers: { "X-Token": TOKEN, "Content-Type": "application/json" } }).then(r => r.json());
-let root = "", kind = "", rows = [], sel = 0, timer;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// mode: "search" 검색 / "related" 같은 공문·다른 버전 / "pii" 개인정보 점검
+let mode = "search", root = "", kind = "", rows = [], sel = 0, timer, piiAll = [], piiWhy = "", related = null;
+const open_ = new Set();  // 펼친 '똑같은 파일'
 
-const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 $("lead").textContent = ROOTS.join(" · ") + " 파일을 이름과 내용으로 찾아요.";
 document.querySelector('.chip[data-root=""]').insertAdjacentHTML("afterend",
   ROOTS.map(r => `<button class="chip" data-root="${esc(r)}" aria-pressed="false">${esc(r)}</button>`).join(""));
+
 function hl(s, terms) {
   let h = esc(s);
   for (const t of terms) if (t) h = h.replace(new RegExp(esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), m => `<mark>${m}</mark>`);
@@ -124,57 +143,140 @@ function ago(t) {
   const d = new Date(t * 1000), now = new Date();
   return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}월 ${d.getDate()}일` : `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
 }
+const where = r => esc(r.root) + (r.folder ? " › " + esc(r.folder) : "");
+const terms = () => $("q").value.trim().toLowerCase().split(/\s+/).flatMap(t => [t, ...(SYN[t] || [])]);
 
+// ---------- 불러오기 ----------
 async function run() {
   const q = $("q").value.trim();
+  if (mode === "pii") return renderPii();
+  if (mode === "related") return render();
   $("tips").hidden = !!q;
   if (!q) { rows = []; render(); return; }
-  const qs = new URLSearchParams({ q, root, kind });
-  rows = await api("/api/search?" + qs);
+  rows = await api("/api/search?" + new URLSearchParams({ q, root, kind }));
   sel = 0; render();
 }
 
-function render() {
-  const q = $("q").value.trim();
-  const terms = q.toLowerCase().split(/\s+/).flatMap(t => [t, ...(SYN[t] || [])]);
-  $("count").textContent = q ? (rows.length >= 200 ? "200개 넘게 찾았어요 — 낱말을 더 넣어 보세요" : `${rows.length}개 찾았어요`) : "";
-  $("empty").hidden = !(q && !rows.length);
-  $("empty").textContent = "찾는 파일이 없어요. 낱말을 줄이거나 다른 말로 찾아 보세요.";
-  $("list").innerHTML = rows.map((r, i) => `
-    <li class="${i === sel ? "sel" : ""}" data-i="${i}">
-      <div class="name" data-act="open"><span class="type">${TYPE[r.ext] || r.ext.toUpperCase()}</span>${hl(r.name, terms)}</div>
-      <div class="path">${esc(r.root)}${r.folder ? " › " + hl(r.folder, terms) : ""}</div>
-      ${r.snippet ? `<div class="snip">${hl(r.snippet, terms)}</div>` : ""}
-      <div class="side"><span class="date">${ago(r.mtime)}</span>
-        <span class="btns"><button class="btn primary" data-act="open">열기</button><button class="btn" data-act="folder">폴더</button></span></div>
-    </li>`).join("");
+async function showRelated(i, kind_) {
+  const r = rows[i];
+  const list = await api("/api/related?" + new URLSearchParams({ path: r.path, kind: kind_ }));
+  related = { back: { rows, sel }, title: r.name, kind: kind_ };
+  mode = "related"; rows = list; sel = 0; render(); window.scrollTo(0, 0);
+}
+function back() {
+  if (mode === "related" && related) { rows = related.back.rows; sel = related.back.sel; related = null; }
+  if (mode === "pii") { $("q").value = savedQ; $("q").placeholder = "예: 교과회의록, 가정통신문, 수행평가"; rows = []; mode = "search"; $("piiBtn").classList.remove("on"); return run(); }
+  mode = "search"; $("piiBtn").classList.remove("on"); render();
 }
 
-async function open(i, mode) {
-  const r = rows[i]; if (!r) return;
-  const res = await api("/api/open", { method: "POST", body: JSON.stringify({ path: r.path, mode }) });
-  toast(res.error || (mode === "folder" ? "폴더를 열었어요" : `${r.name} 여는 중`));
+// ---------- 검색 결과 ----------
+function render() {
+  const q = $("q").value.trim(), t = mode === "search" ? terms() : [];
+  $("tips").hidden = mode !== "search" || !!q;
+  $("banner").hidden = mode !== "related";
+  if (mode === "related") {
+    const what = related.kind === "gm" ? "같은 공문으로 받은 파일" : "다른 해·다른 버전";
+    $("banner").innerHTML = `<button class="linkbtn" data-act="back">‹ 검색 결과로 돌아가기</button>
+      <h2>${esc(related.title)}</h2><p>${what} — 최근 것부터 ${rows.length}개</p>`;
+  }
+  $("count").textContent = mode === "related" ? "" : q ? (rows.length >= 200 ? "200개 넘게 찾았어요 — 낱말을 더 넣어 보세요" : `${rows.length}개 찾았어요`) : "";
+  $("empty").hidden = !(mode === "search" && q && !rows.length);
+  $("empty").textContent = "찾는 파일이 없어요. 낱말을 줄이거나 다른 말로 찾아 보세요.";
+  $("list").innerHTML = rows.map((r, i) => {
+    const more = [];
+    if (r.copies?.length) more.push(`<button class="linkbtn" data-act="copies">똑같은 파일 ${r.copies.length}개 더 ${open_.has(r.path) ? "접기" : "보기"}</button>`);
+    if (mode === "search" && r.gm_count) more.push(`<button class="linkbtn" data-act="gm">같은 공문 ${r.gm_count}개</button>`);
+    if (mode === "search" && r.ver_count) more.push(`<button class="linkbtn" data-act="base">다른 해·다른 버전 ${r.ver_count}개</button>`);
+    const copies = open_.has(r.path) && r.copies?.length ? `<div class="copies">${r.copies.map(p =>
+      `<div><span>${esc(p)}</span><button class="linkbtn" data-act="folder" data-path="${esc(p)}">폴더</button></div>`).join("")}</div>` : "";
+    return `<li class="${i === sel ? "sel" : ""}" data-i="${i}">
+      <div class="name" data-act="open"><span class="type">${TYPE[r.ext] || r.ext.toUpperCase()}</span>${hl(r.name, t)}</div>
+      <div class="path">${where(r)}</div>
+      ${r.snippet ? `<div class="snip">${hl(r.snippet, t)}</div>` : ""}
+      ${more.length ? `<div class="more">${more.join("")}</div>${copies}` : ""}
+      <div class="side"><span class="date">${ago(r.mtime)}</span>
+        <span class="btns"><button class="btn primary" data-act="open">열기</button><button class="btn" data-act="folder">폴더</button></span></div>
+    </li>`;
+  }).join("");
+}
+
+// ---------- 개인정보 점검 ----------
+const WHY = [["", "전체"], ["민감", "민감 문서"], ["전화", "전화번호"], ["주민", "주민번호 형식"], ["이름에", "이름으로 판단"]];
+let savedQ = "";
+async function showPii() {
+  if (mode !== "pii") { savedQ = $("q").value; $("q").value = ""; piiWhy = ""; $("q").placeholder = "파일 이름이나 폴더로 좁히기"; }
+  mode = "pii"; $("piiBtn").classList.add("on");
+  piiAll = await api("/api/pii?" + new URLSearchParams({ root }));
+  renderPii();
+}
+function renderPii() {
+  const q = $("q").value.trim().toLowerCase();
+  const list = piiAll.filter(r => (!piiWhy || r.pii.includes(piiWhy)) && (!q || r.name.toLowerCase().includes(q) || r.folder.toLowerCase().includes(q)));
+  $("tips").hidden = true; $("empty").hidden = !!list.length; $("empty").textContent = "해당하는 파일이 없어요.";
+  $("banner").hidden = false;
+  $("banner").innerHTML = `<button class="linkbtn" data-act="back">‹ 검색으로 돌아가기</button>
+    <h2>개인정보가 들어 있을 만한 파일 ${piiAll.length.toLocaleString()}개</h2>
+    <p>파일 이름, 폴더, 그리고 이 컴퓨터 안에서 센 전화번호·주민번호 형식 개수로만 골랐어요. 내용은 밖으로 나가지 않아요.
+    학교폭력 문서처럼 내용을 읽지 않기로 한 파일은 '민감 문서'로 모았어요. 필요 없어진 파일은 직접 지우거나 옮기세요.</p>
+    <div class="filters">${WHY.map(([k, label]) => {
+      const n = k ? piiAll.filter(r => r.pii.includes(k)).length : piiAll.length;
+      return `<button class="chip" data-why="${k}" aria-pressed="${piiWhy === k}">${label} ${n.toLocaleString()}</button>`;
+    }).join("")}</div>`;
+  $("count").textContent = `${list.length.toLocaleString()}개 보는 중`;
+  let last = "";
+  rows = list;
+  $("list").innerHTML = list.map((r, i) => {
+    const g = where(r), head = g !== last ? `<li class="group">${g}</li>` : "";
+    last = g;
+    return head + `<li data-i="${i}">
+      <div class="name" data-act="open"><span class="type">${TYPE[r.ext] || r.ext.toUpperCase()}</span>${esc(r.name)}</div>
+      <div class="why">${esc(r.pii)}</div>
+      <div class="side"><span class="date">${ago(r.mtime)}</span>
+        <span class="btns"><button class="btn primary" data-act="open">열기</button><button class="btn" data-act="folder">폴더</button></span></div>
+    </li>`;
+  }).join("");
+}
+
+// ---------- 열기 ----------
+async function openPath(path, mode_, name) {
+  const res = await api("/api/open", { method: "POST", body: JSON.stringify({ path, mode: mode_ }) });
+  toast(res.error || (mode_ === "folder" ? "폴더를 열었어요" : `${name || "파일"} 여는 중`));
 }
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 1800); }
 
-$("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 120); });
+// ---------- 이벤트 ----------
+$("q").addEventListener("input", () => {
+  if (mode === "related") { mode = "search"; related = null; }
+  clearTimeout(timer); timer = setTimeout(run, 120);
+});
 $("q").addEventListener("keydown", e => {
+  if (mode === "pii") return;
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault(); sel = Math.max(0, Math.min(rows.length - 1, sel + (e.key === "ArrowDown" ? 1 : -1))); render();
     document.querySelector("li.sel")?.scrollIntoView({ block: "nearest" });
-  } else if (e.key === "Enter") open(sel, e.shiftKey ? "folder" : "open");
+  } else if (e.key === "Enter" && rows[sel]) openPath(rows[sel].path, e.shiftKey ? "folder" : "open", rows[sel].name);
+  else if (e.key === "Escape" && mode === "related") back();
 });
-$("list").addEventListener("click", e => {
-  const act = e.target.closest("[data-act]")?.dataset.act, li = e.target.closest("li");
-  if (act && li) open(+li.dataset.i, act);
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]"), act = el?.dataset.act;
+  if (act === "back") return back();
+  if (e.target.closest("[data-why]")) { piiWhy = e.target.closest("[data-why]").dataset.why; return renderPii(); }
+  const li = e.target.closest("li[data-i]"); if (!act || !li) return;
+  const r = rows[+li.dataset.i];
+  if (act === "open") openPath(r.path, "open", r.name);
+  else if (act === "folder") openPath(el.dataset.path || r.path, "folder");
+  else if (act === "copies") { open_.has(r.path) ? open_.delete(r.path) : open_.add(r.path); render(); }
+  else if (act === "gm" || act === "base") showRelated(+li.dataset.i, act);
 });
 $("filters").addEventListener("click", e => {
   const b = e.target.closest(".chip"); if (!b) return;
   const key = "root" in b.dataset ? "root" : "kind";
-  document.querySelectorAll(`.chip[data-${key}]`).forEach(c => c.setAttribute("aria-pressed", c === b));
+  document.querySelectorAll(`#filters .chip[data-${key}]`).forEach(c => c.setAttribute("aria-pressed", c === b));
   if (key === "root") root = b.dataset.root; else kind = b.dataset.kind;
-  run(); $("q").focus();
+  if (mode === "pii") showPii(); else { if (mode === "related") { mode = "search"; related = null; } run(); }
+  $("q").focus();
 });
+$("piiBtn").addEventListener("click", () => mode === "pii" ? back() : showPii());
 $("re").addEventListener("click", async () => { await api("/api/reindex", { method: "POST" }); status(); });
 
 async function status() {
@@ -182,7 +284,7 @@ async function status() {
   $("idx").textContent = s.running ? `파일 읽는 중… ${s.done}개` :
     `파일 ${s.count.toLocaleString()}개 · ${s.indexed_at ? new Date(s.indexed_at * 1000).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" }) + "에 읽음" : ""}`;
   $("re").hidden = s.running;
-  if (s.running) setTimeout(status, 1000); else if ($("q").value) run();
+  if (s.running) setTimeout(status, 1000); else if ($("q").value && mode === "search") run();
 }
 status();
 </script>

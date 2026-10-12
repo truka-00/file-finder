@@ -42,12 +42,75 @@ MAX_TEXT = 200_000
 DB_PATH = LOCAL / "index.db"
 
 
+# ---------- 묶음 열쇠 ----------
+
+def file_hash(p: Path) -> str:
+    import hashlib
+    h = hashlib.md5()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def base_name(name: str) -> str:
+    """연도·사본 번호·수정/최종 표시를 떼어낸 이름 — 같으면 '다른 버전'으로 본다."""
+    stem, _, ext = name.lower().rpartition(".")
+    if ext not in DOC_EXT:  # 사진·웹파일 등은 'index.html' 같은 흔한 이름이 많아 묶지 않는다
+        return ""
+    s = re.sub(r"\(\d+\)|\[\d+\]", " ", stem)                    # (1) 사본
+    s = re.sub(r"(19|20)\d{2}\s*학년도|(19|20)\d{2}\s*년?|\d{2}학년도", " ", s)
+    s = re.sub(r"\d{1,2}\.\d{1,2}\.?(ver\.?)?|\d{6,}|\bv\d+\b", " ", s)  # 날짜·버전·타임스탬프
+    s = re.sub(r"수정본|수정|최종본?|확인본|변경|사본|복사본|ver|final|copy|_f_", " ", s)
+    s = re.sub(r"[\s+_\-.,()\[\]{}·]+", "", s)
+    return s if len(s) >= 4 and len(re.findall(r"[가-힣]", s)) >= 2 else ""
+
+
+DOC_EXT = {"hwp", "hwpx", "pdf", "doc", "docx", "xls", "xlsx", "xlsm", "ppt", "pptx", "odt", "ods", "odp", "show", "cell"}
+
+
+GM_RE = re.compile(r"([가-힣A-Za-z]+-\d{2,6})\s*\((?:본문|첨부)\)")
+
+
+def gongmun_key(name: str) -> str:
+    m = GM_RE.search(name)
+    return m.group(1) if m else ""
+
+
+PHONE_RE = re.compile(r"01[016789][-. ]?\d{3,4}[-. ]?\d{4}")
+RRN_RE = re.compile(r"(?<!\d)\d{6}[- ]?[1-4]\d{6}(?!\d)")
+PII_WORDS = ["명렬", "비상연락", "연락망", "행동발달", "석차", "생기부", "생활기록부 기재 내용", "상담기록", "진술",
+             "확인서", "의견서", "출석부", "점수관리", "특기사항", "주소록", "학생 명단", "참가 명단", "학생명단",
+             "기록보조부", "통지자료", "성적", "통장사본", "사업자등록증", "주민등록", "가족관계", "등본",
+             "경력 조회", "범죄", "건강", "보건실", "응답)", "자리배정", "좌석", "사진대장", "거주지"]
+
+
+def pii_reason(name: str, text: str, read: bool) -> str:
+    """개인정보가 들어 있을 만한 이유. 내용은 이 컴퓨터 안에서만 센다."""
+    out = []
+    if not read:
+        out.append("민감 문서(내용 안 읽음)")
+    n = len(PHONE_RE.findall(text or ""))
+    if n >= 3:
+        out.append(f"전화번호 {n}개")
+    if RRN_RE.search(text or ""):
+        out.append("주민번호 형식")
+    kw = next((w for w in PII_WORDS if w in name), "")
+    if kw:
+        out.append(f"이름에 '{kw}'")
+    return ", ".join(out)
+
+
 def db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB_PATH, check_same_thread=False)
     con.execute("""CREATE TABLE IF NOT EXISTS files(
         path TEXT PRIMARY KEY, name TEXT, ext TEXT, root TEXT, folder TEXT,
         size INTEGER, mtime REAL, text TEXT)""")
+    cols = {r[1] for r in con.execute("PRAGMA table_info(files)")}
+    for c in ("dup", "base", "gm", "pii"):  # 똑같은 파일 / 버전 묶음 / 공문 번호 / 개인정보 이유
+        if c not in cols:
+            con.execute(f"ALTER TABLE files ADD COLUMN {c} TEXT")
     con.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
     return con
 
@@ -213,13 +276,21 @@ def walk():
                     yield root_name, root, Path(dirpath) / f, ext
 
 
+def _keys(p: Path, root: Path, text: str):
+    try:
+        dup = file_hash(p)
+    except OSError:
+        dup = str(p)
+    return dup, base_name(p.name), gongmun_key(p.name), pii_reason(p.name, text, readable(p, root))
+
+
 def index(progress=None):
     con = db()
     known = {p: (s, m) for p, s, m in con.execute("SELECT path, size, mtime FROM files")}
     # 읽지 않기로 한 파일의 내용이 남아 있으면 지운다 (설정을 나중에 바꾼 경우)
     for sp, rt in con.execute("SELECT path, root FROM files WHERE text != ''").fetchall():
         if rt in ROOTS and not readable(Path(sp), ROOTS[rt]):
-            con.execute("UPDATE files SET text='' WHERE path=?", (sp,))
+            con.execute("UPDATE files SET text='', dup=NULL WHERE path=?", (sp,))
     con.commit()
     seen, done = set(), 0
     for root_name, root, p, ext in walk():
@@ -239,9 +310,9 @@ def index(progress=None):
             except Exception:
                 text = ""  # 암호 걸린 파일 등은 이름으로만 찾는다
         folder = str(p.parent.relative_to(root)).replace("\\", " › ")
-        con.execute("REPLACE INTO files VALUES(?,?,?,?,?,?,?,?)",
+        con.execute("REPLACE INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                     (sp, p.name, ext, root_name, "" if folder == "." else folder,
-                     st.st_size, st.st_mtime, text))
+                     st.st_size, st.st_mtime, text, *_keys(p, root, text)))
         done += 1
         if done % 25 == 0:
             con.commit()
@@ -249,6 +320,11 @@ def index(progress=None):
                 progress(done, p.name)
     gone = set(known) - seen
     con.executemany("DELETE FROM files WHERE path=?", [(g,) for g in gone])
+    # 예전에 색인한 파일에 묶음 열쇠 채우기
+    for sp, rt, text in con.execute("SELECT path, root, text FROM files WHERE dup IS NULL").fetchall():
+        if rt in ROOTS and Path(sp).exists():
+            con.execute("UPDATE files SET dup=?, base=?, gm=?, pii=? WHERE path=?",
+                        (*_keys(Path(sp), ROOTS[rt], text or ""), sp))
     con.execute("REPLACE INTO meta VALUES('indexed_at', ?)", (str(time.time()),))
     con.commit()
     return done, len(gone)
@@ -283,9 +359,10 @@ def search(con, q, root="", kind="", limit=200):
         exts = KINDS.get(kind, [])
         where.append(f"ext IN ({','.join('?' * len(exts))})")
         args += exts
-    rows = con.execute(f"SELECT path,name,ext,root,folder,size,mtime,text FROM files WHERE {' AND '.join(where)}", args).fetchall()
+    rows = con.execute(f"SELECT path,name,ext,root,folder,size,mtime,text,dup,base,gm FROM files "
+                       f"WHERE {' AND '.join(where)}", args).fetchall()
     out = []
-    for path, name, ext, rt, folder, size, mtime, text in rows:
+    for path, name, ext, rt, folder, size, mtime, text, dup, base, gm in rows:
         lname, lfolder, ltext = name.lower(), folder.lower(), (text or "").lower()
         score, snippet = 0, ""
         for t in terms:
@@ -302,10 +379,55 @@ def search(con, q, root="", kind="", limit=200):
                         s = max(0, k - 45)
                         snippet = ("…" if s else "") + text[s:k + len(a) + 70].replace("\n", " ") + "…"
                     break
-        out.append({"path": path, "name": name, "ext": ext, "root": rt, "folder": folder,
-                    "size": size, "mtime": mtime, "snippet": snippet, "score": score})
+        out.append({"path": path, "name": name, "ext": ext, "root": rt, "folder": folder, "size": size,
+                    "mtime": mtime, "snippet": snippet, "score": score, "dup": dup, "base": base, "gm": gm})
     out.sort(key=lambda r: (-r["score"], -r["mtime"]))
-    return out[:limit]
+    return _group(con, out, limit)
+
+
+def _group(con, rows, limit):
+    """똑같은 파일은 하나로 접고, 같은 공문·다른 버전 개수를 붙인다."""
+    seen, out = {}, []
+    for r in rows:
+        key = r["dup"] or r["path"]
+        if key in seen:
+            seen[key]["copies"].append(r["path"])
+            continue
+        r["copies"] = []
+        seen[key] = r
+        out.append(r)
+    out = out[:limit]
+    for col, field in (("gm", "gm_count"), ("base", "ver_count")):
+        keys = list({r[col] for r in out if r[col]})
+        counts = {}
+        for i in range(0, len(keys), 500):
+            part = keys[i:i + 500]
+            counts.update(con.execute(f"SELECT {col}, count(DISTINCT dup) FROM files WHERE {col} IN "
+                                      f"({','.join('?' * len(part))}) GROUP BY {col}", part).fetchall())
+        for r in out:
+            r[field] = max(0, counts.get(r[col], 1) - 1) if r[col] else 0
+    return out
+
+
+def related(con, path, kind):
+    """kind='gm' 같은 공문 / 'base' 다른 해·다른 버전 — 이 파일과 묶이는 파일들 (자기 자신 포함)."""
+    col = {"gm": "gm", "base": "base"}[kind]
+    row = con.execute(f"SELECT {col} FROM files WHERE path=?", (path,)).fetchone()
+    if not row or not row[0]:
+        return []
+    rows = con.execute(f"SELECT path,name,ext,root,folder,size,mtime,dup,base,gm FROM files WHERE {col}=? "
+                       f"ORDER BY mtime DESC", (row[0],)).fetchall()
+    out = [{"path": p, "name": n, "ext": e, "root": rt, "folder": f, "size": s, "mtime": m, "snippet": "",
+            "score": 0, "dup": d, "base": b, "gm": g} for p, n, e, rt, f, s, m, d, b, g in rows]
+    return _group(con, out, 500)
+
+
+def pii_list(con, root=""):
+    """개인정보가 들어 있을 만한 파일 — 이름·위치·이유만 (내용은 돌려주지 않는다)."""
+    q = "SELECT path,name,ext,root,folder,mtime,pii FROM files WHERE pii != ''" + (" AND root=?" if root else "")
+    rows = con.execute(q + " ORDER BY root, folder, name", (root,) if root else ()).fetchall()
+    return [{"path": p, "name": n, "ext": e, "root": rt, "folder": f, "mtime": m, "pii": why}
+            for p, n, e, rt, f, m, why in rows]
 
 
 KINDS = {

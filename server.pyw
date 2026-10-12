@@ -64,6 +64,14 @@ class H(BaseHTTPRequestHandler):
             with lock:
                 rows = indexer.search(con, q.get("q", ""), q.get("root", ""), q.get("kind", ""))
             return self._send(200, rows)
+        if u.path == "/api/related":
+            with lock:
+                rows = indexer.related(con, q.get("path", ""), q.get("kind", "gm"))
+            return self._send(200, rows)
+        if u.path == "/api/pii":
+            with lock:
+                rows = indexer.pii_list(con, q.get("root", ""))
+            return self._send(200, rows)
         if u.path == "/api/status":
             with lock:
                 n = con.execute("SELECT count(*) FROM files").fetchone()[0]
