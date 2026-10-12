@@ -1,0 +1,61 @@
+# ── 빌드·의존성 (다시 만들 수 있는 것) ──
+node_modules/
+dist/
+dist-*/
+build/
+out/
+.next/
+target/
+.firebase/
+.vercel/
+.turbo/
+.cache/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.tools/
+coverage/
+
+# ── 비밀 (절대 올리지 않음) ──
+.env
+.env.*
+!.env.example
+*.local
+serviceAccount*.json
+*service-account*.json
+*-admin*.json
+*adminsdk*.json
+*.pem
+*.p12
+*.key
+*.keystore
+*.jks
+.gcloud-config/
+
+# ── 개인정보·백업 (학생 명단, 제출물, 통째 백업) ──
+private/
+backups/
+_백업/
+*명단*
+*명렬*
+KakaoTalk_*
+
+# ── 큰 파일 ──
+*.zip
+*.tar.gz
+*.apk
+*.aab
+*.dmg
+*.exe
+*.msi
+
+# ── 기타 ──
+.DS_Store
+Thumbs.db
+*.log
+.claude/settings.local.json
+
+# 색인은 %LOCALAPPDATA%\파일찾기\index.db 에 있고 저장소에 넣지 않는다
+*.db
+config.json

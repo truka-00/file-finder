@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>파일 찾기</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d1d1f'/%3E%3Ccircle cx='28' cy='28' r='13' fill='none' stroke='white' stroke-width='6'/%3E%3Cpath d='M38 38l12 12' stroke='white' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  :root {
+    --ink: #1d1d1f; --sub: rgba(0,0,0,.56); --faint: #a0a0a0;
+    --bg: #fff; --soft: #f5f5f7; --line: rgba(0,0,0,.08); --accent: #0066cc;
+    --mark: #fff3b0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif;
+    font-size: 17px; line-height: 1.6; word-break: keep-all;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 72px 24px 96px; }
+  h1 { font-size: 48px; font-weight: 600; line-height: 1.15; letter-spacing: -0.01em; margin: 0 0 8px; }
+  .lead { font-size: 19px; color: var(--sub); margin: 0 0 32px; }
+
+  .box { position: relative; }
+  #q {
+    width: 100%; height: 64px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--soft); padding: 0 28px; font: inherit; font-size: 21px; color: var(--ink);
+    outline: none;
+  }
+  #q:focus { background: #fff; border-color: var(--ink); }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+  .chip {
+    height: 36px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line);
+    background: #fff; font: inherit; font-size: 15px; font-weight: 500; color: var(--ink); cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .sep { width: 1px; background: var(--line); margin: 4px 6px; }
+
+  .status { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    margin: 28px 0 8px; font-size: 14px; color: var(--sub); }
+  .linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
+
+  ol { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  li { padding: 20px 4px; border-bottom: 1px solid var(--line); display: grid;
+    grid-template-columns: 1fr auto; gap: 4px 24px; align-items: start; border-radius: 4px; }
+  li.sel { background: var(--soft); }
+  .name { font-size: 17px; font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
+  .name:hover { text-decoration: underline; }
+  .type { display: inline-block; font-size: 12px; font-weight: 600; color: var(--sub);
+    border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; margin-right: 8px; vertical-align: 2px; }
+  .path { font-size: 14px; color: var(--sub); overflow-wrap: anywhere; }
+  .snip { font-size: 15px; color: var(--sub); margin-top: 4px; overflow-wrap: anywhere; }
+  mark { background: var(--mark); color: inherit; border-radius: 2px; }
+  .side { grid-row: 1 / span 3; grid-column: 2; text-align: right; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .date { font-size: 13px; color: var(--faint); white-space: nowrap; }
+  .btns { display: flex; gap: 6px; }
+  .btn { height: 34px; padding: 0 14px; border-radius: 999px; font: inherit; font-size: 14px; font-weight: 500;
+    cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink); white-space: nowrap; }
+  .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .empty { padding: 56px 0; text-align: center; color: var(--sub); }
+  .tips { font-size: 15px; color: var(--sub); margin-top: 40px; }
+  .tips b { color: var(--ink); font-weight: 600; }
+  .toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: var(--ink); color: #fff;
+    padding: 12px 20px; border-radius: 999px; font-size: 15px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: 1; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 40px 16px 64px; }
+    h1 { font-size: 34px; }
+    li { grid-template-columns: 1fr; }
+    .side { grid-row: auto; grid-column: 1; flex-direction: row; justify-content: space-between; align-items: center; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>파일 찾기</h1>
+  <p class="lead" id="lead"></p>
+
+  <div class="box"><input id="q" type="search" placeholder="예: 교과회의록, 가정통신문, 수행평가" autofocus autocomplete="off"></div>
+  <div class="filters" id="filters">
+    <button class="chip" data-root="" aria-pressed="true">전체</button>
+    <span class="sep"></span>
+    <button class="chip" data-kind="" aria-pressed="true">모든 종류</button>
+    <button class="chip" data-kind="한글" aria-pressed="false">한글</button>
+    <button class="chip" data-kind="PDF" aria-pressed="false">PDF</button>
+    <button class="chip" data-kind="엑셀" aria-pressed="false">엑셀</button>
+    <button class="chip" data-kind="사진·영상" aria-pressed="false">사진·영상</button>
+  </div>
+
+  <div class="status"><span id="count"></span><span><span id="idx"></span> <button class="linkbtn" id="re">다시 읽기</button></span></div>
+  <ol id="list"></ol>
+  <div id="empty" class="empty" hidden></div>
+  <p class="tips" id="tips">
+    <b>띄어쓰기</b>로 여러 낱말을 넣으면 모두 들어 있는 파일만 보여줘요. &nbsp;
+    <b>↑ ↓</b>로 고르고 <b>Enter</b>로 열어요. &nbsp; <b>학폭</b>, <b>수행</b>, <b>생기부</b> 같은 줄임말도 알아들어요.
+  </p>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const ROOTS = __ROOTS__;
+const $ = id => document.getElementById(id);
+const api = (u, opt = {}) => fetch(u, { ...opt, headers: { "X-Token": TOKEN, "Content-Type": "application/json" } }).then(r => r.json());
+let root = "", kind = "", rows = [], sel = 0, timer;
+
+
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+$("lead").textContent = ROOTS.join(" · ") + " 파일을 이름과 내용으로 찾아요.";
+document.querySelector('.chip[data-root=""]').insertAdjacentHTML("afterend",
+  ROOTS.map(r => `<button class="chip" data-root="${esc(r)}" aria-pressed="false">${esc(r)}</button>`).join(""));
+function hl(s, terms) {
+  let h = esc(s);
+  for (const t of terms) if (t) h = h.replace(new RegExp(esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), m => `<mark>${m}</mark>`);
+  return h;
+}
+const SYN = { "학폭": ["학교폭력"], "수평": ["수행평가"], "수행": ["수행평가"], "생기부": ["생활기록부", "세특"], "연락망": ["비상연락"] };
+const TYPE = { hwp: "한글", hwpx: "한글", pdf: "PDF", xlsx: "엑셀", xls: "엑셀", xlsm: "엑셀", csv: "엑셀", docx: "워드", pptx: "PPT",
+  jpg: "사진", jpeg: "사진", png: "사진", heic: "사진", mp4: "영상", mov: "영상", zip: "압축", txt: "메모", html: "웹" };
+function ago(t) {
+  const d = new Date(t * 1000), now = new Date();
+  return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}월 ${d.getDate()}일` : `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
+}
+
+async function run() {
+  const q = $("q").value.trim();
+  $("tips").hidden = !!q;
+  if (!q) { rows = []; render(); return; }
+  const qs = new URLSearchParams({ q, root, kind });
+  rows = await api("/api/search?" + qs);
+  sel = 0; render();
+}
+
+function render() {
+  const q = $("q").value.trim();
+  const terms = q.toLowerCase().split(/\s+/).flatMap(t => [t, ...(SYN[t] || [])]);
+  $("count").textContent = q ? (rows.length >= 200 ? "200개 넘게 찾았어요 — 낱말을 더 넣어 보세요" : `${rows.length}개 찾았어요`) : "";
+  $("empty").hidden = !(q && !rows.length);
+  $("empty").textContent = "찾는 파일이 없어요. 낱말을 줄이거나 다른 말로 찾아 보세요.";
+  $("list").innerHTML = rows.map((r, i) => `
+    <li class="${i === sel ? "sel" : ""}" data-i="${i}">
+      <div class="name" data-act="open"><span class="type">${TYPE[r.ext] || r.ext.toUpperCase()}</span>${hl(r.name, terms)}</div>
+      <div class="path">${esc(r.root)}${r.folder ? " › " + hl(r.folder, terms) : ""}</div>
+      ${r.snippet ? `<div class="snip">${hl(r.snippet, terms)}</div>` : ""}
+      <div class="side"><span class="date">${ago(r.mtime)}</span>
+        <span class="btns"><button class="btn primary" data-act="open">열기</button><button class="btn" data-act="folder">폴더</button></span></div>
+    </li>`).join("");
+}
+
+async function open(i, mode) {
+  const r = rows[i]; if (!r) return;
+  const res = await api("/api/open", { method: "POST", body: JSON.stringify({ path: r.path, mode }) });
+  toast(res.error || (mode === "folder" ? "폴더를 열었어요" : `${r.name} 여는 중`));
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 1800); }
+
+$("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 120); });
+$("q").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault(); sel = Math.max(0, Math.min(rows.length - 1, sel + (e.key === "ArrowDown" ? 1 : -1))); render();
+    document.querySelector("li.sel")?.scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Enter") open(sel, e.shiftKey ? "folder" : "open");
+});
+$("list").addEventListener("click", e => {
+  const act = e.target.closest("[data-act]")?.dataset.act, li = e.target.closest("li");
+  if (act && li) open(+li.dataset.i, act);
+});
+$("filters").addEventListener("click", e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  const key = "root" in b.dataset ? "root" : "kind";
+  document.querySelectorAll(`.chip[data-${key}]`).forEach(c => c.setAttribute("aria-pressed", c === b));
+  if (key === "root") root = b.dataset.root; else kind = b.dataset.kind;
+  run(); $("q").focus();
+});
+$("re").addEventListener("click", async () => { await api("/api/reindex", { method: "POST" }); status(); });
+
+async function status() {
+  const s = await api("/api/status");
+  $("idx").textContent = s.running ? `파일 읽는 중… ${s.done}개` :
+    `파일 ${s.count.toLocaleString()}개 · ${s.indexed_at ? new Date(s.indexed_at * 1000).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" }) + "에 읽음" : ""}`;
+  $("re").hidden = s.running;
+  if (s.running) setTimeout(status, 1000); else if ($("q").value) run();
+}
+status();
+</script>
+</body>
+</html>
